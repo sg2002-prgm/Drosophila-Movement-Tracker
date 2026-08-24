@@ -1,6 +1,6 @@
-# Drosophila Movement Tracker
+# Drosophila Activity Tracker
 
-A desktop app (PyQt5) for tracking multiple *Drosophila* flies, each in its own vial, from a live camera or a recorded video file — logging position, movement status, speed, and total distance to Excel, and exporting trajectory plots as PNGs.
+A desktop app (PyQt5) for tracking multiple *Drosophila* flies, each in its own vial, from a live camera or a recorded video file — logging position, movement status, speed, and total distance to Excel, and exporting trajectory plots as PNGs. This repository can be used for Sleep pattern analysis of Drosophila Flies. Note: The flies and the background on which the fly is analysed must have a colour difference. 
 
 ---
 
@@ -13,8 +13,7 @@ pip install PyQt5 opencv-python openpyxl matplotlib numpy
 Optional, for extra features:
 
 ```bash
-pip install pygrabber      # Windows only - shows real camera names (e.g. "Logitech BRIO")
-                            # instead of generic "Camera 0", "Camera 1"...
+pip install pygrabber      # Windows only - shows real camera names (e.g. "Logitech BRIO") instead of generic "Camera 0", "Camera 1"...
 ```
 
 **Run:**
