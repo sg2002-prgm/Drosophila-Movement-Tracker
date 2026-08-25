@@ -1,4 +1,4 @@
-# Drosophila Activity Tracker
+# Drosophila Movement Tracker
 
 A desktop app (PyQt5) for tracking multiple *Drosophila* flies, each in its own vial, from a live camera or a recorded video file — logging position, movement status, speed, and total distance to Excel, and exporting trajectory plots as PNGs. This repository can be used for Sleep pattern analysis of Drosophila Flies. Note: The flies and the background on which the fly is analysed must have a colour difference. 
 
