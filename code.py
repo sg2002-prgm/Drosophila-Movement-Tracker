@@ -26,6 +26,8 @@ import time
 import datetime
 from dataclasses import dataclass, field
 
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+
 import cv2
 import numpy as np
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
@@ -153,7 +155,8 @@ class TrackerEngine(QObject):
 
         found = []
         for i in range(max_probe):
-            cap = cv2.VideoCapture(i)
+            backend = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_V4L2
+            cap = cv2.VideoCapture(i, backend)
             if cap is not None and cap.isOpened():
                 found.append((i, device_names.get(i, f"Camera {i}")))
             cap.release()
