@@ -33,9 +33,9 @@ import numpy as np
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel, QPushButton, QSlider,
-    QComboBox, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
-    QTableWidget, QTableWidgetItem, QFileDialog, QMessageBox, QCheckBox,
+    QApplication, QMainWindow, QWidget, QLabel, QPushButton,
+    QComboBox, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QSlider,
+    QTableWidget, QTableWidgetItem, QFileDialog, QMessageBox, QCheckBox, QColorDialog, 
     QSpinBox, QDoubleSpinBox, QLineEdit, QScrollArea, QProgressBar,
     QRadioButton, QButtonGroup
 )
@@ -80,6 +80,8 @@ MOVE_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="sol
 def fly_color(idx):
     return FLY_COLORS[idx % len(FLY_COLORS)]
 
+def get_fly_color(roi, idx):
+    return roi.color if getattr(roi, "color", None) else fly_color(idx)
 
 def safe_filename_part(name):
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip() or "fly"
@@ -95,6 +97,7 @@ class FlyROI:
     rect: tuple = None  # (x, y, w, h) in raw frame pixel coords, or None
     real_w_mm: float = DEFAULT_VIAL_W_MM
     real_h_mm: float = DEFAULT_VIAL_H_MM
+    color: str = None
 
 
 @dataclass
@@ -248,7 +251,10 @@ class TrackerEngine(QObject):
 
     def set_vial_size(self, fly_idx, w_mm, h_mm):
         self.rois[fly_idx].real_w_mm = w_mm
-        self.rois[fly_idx].real_h_mm = h_mm
+        self.rois[fly_idx].real_h_mm = h_mm 
+
+    def set_fly_color(self, fly_idx, hex_color):
+        self.rois[fly_idx].color = hex_color
 
     def reset_data(self):
         self.tracks = [FlyTrack() for _ in range(self.num_flies)]
