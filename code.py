@@ -48,7 +48,7 @@ import matplotlib.pyplot as plt
 
 
 DEFAULT_NUM_FLIES = 5
-MAX_FLIES = 20
+MAX_FLIES = 100
 MAX_CAMERA_PROBE = 8  # how many camera indices to test when scanning
 FLY_COLORS = [
     "#e6194B", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
