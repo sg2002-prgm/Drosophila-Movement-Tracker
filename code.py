@@ -264,7 +264,7 @@ class TrackerEngine(QObject):
     def save_layout(self, path):
         data = {
             "rois": [
-                {"name": r.name, "rect": r.rect, "real_w_mm": r.real_w_mm, "real_h_mm": r.real_h_mm}
+                {"name": r.name, "rect": r.rect, "real_w_mm": r.real_w_mm, "real_h_mm": r.real_h_mm, "color": r.color}
                 for r in self.rois
             ],
             "threshold": self.threshold,
@@ -286,6 +286,7 @@ class TrackerEngine(QObject):
             self.rois[i].rect = tuple(rect) if rect else None
             self.rois[i].real_w_mm = r.get("real_w_mm", DEFAULT_VIAL_W_MM)
             self.rois[i].real_h_mm = r.get("real_h_mm", DEFAULT_VIAL_H_MM)
+            self.rois[i].color = r.get("color")
         self.threshold = data.get("threshold", self.threshold)
         self.min_blob_area = data.get("min_blob_area", self.min_blob_area)
         self.log_interval_sec = data.get("log_interval_sec", self.log_interval_sec)
@@ -335,7 +336,7 @@ class TrackerEngine(QObject):
                         display[max(y, 0):y + h, max(x, 0):x + w] = mask_bgr
 
                 # ROI rectangle + label - always drawn whenever an ROI is set
-                color = tuple(int(c) for c in QColor(fly_color(i)).getRgb()[2::-1])
+                color = tuple(int(c) for c in QColor(get_fly_color(roi, i)).getRgb()[2::-1])
                 cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
                 cv2.putText(display, roi.name, (x, max(y - 6, 10)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
@@ -548,7 +549,7 @@ class TrackerEngine(QObject):
             safe_name = safe_filename_part(roi.name)
 
             fig, ax = plt.subplots(figsize=(6, 3))
-            ax.plot(times_s, xs, "-", color=fly_color(i), linewidth=1)
+            ax.plot(times_s, xs, "-", color=get_fly_color(roi, i), linewidth=1)
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("X (mm)")
             ax.set_title(f"{roi.name} - X position vs Time")
@@ -557,7 +558,7 @@ class TrackerEngine(QObject):
             plt.close(fig)
 
             fig, ax = plt.subplots(figsize=(6, 3))
-            ax.plot(times_s, ys, "-", color=fly_color(i), linewidth=1)
+            ax.plot(times_s, ys, "-", color=get_fly_color(roi, i), linewidth=1)
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Y (mm)")
             ax.set_title(f"{roi.name} - Y position vs Time")
@@ -847,6 +848,16 @@ class MainWindow(QMainWindow):
         self.grid_div_spin.setToolTip("Secondary reference grid drawn inside each ROI (0 = off)")
         self.grid_div_spin.valueChanged.connect(self.engine.set_grid_divisions)
         layout.addWidget(self.grid_div_spin, 4, 1)
+        layout.addWidget(QLabel("Fly Color"), 6, 0)
+        color_row = QHBoxLayout()
+        self.fly_color_btn = QPushButton("Pick Color")
+        self.fly_color_btn.clicked.connect(self.on_fly_color_clicked)
+        self.fly_color_swatch = QLabel()
+        self.fly_color_swatch.setFixedSize(24, 24)
+        self.fly_color_swatch.setStyleSheet("background-color: #000000; border: 1px solid #888;")
+        color_row.addWidget(self.fly_color_btn)
+        color_row.addWidget(self.fly_color_swatch)
+        layout.addLayout(color_row, 6, 1)
 
         self.save_layout_btn = QPushButton("Save Layout")
         self.save_layout_btn.clicked.connect(self.save_layout)
@@ -1056,6 +1067,18 @@ class MainWindow(QMainWindow):
         self.vial_h_spin.setValue(roi.real_h_mm)
         self.vial_w_spin.blockSignals(False)
         self.vial_h_spin.blockSignals(False)
+        current_color = roi.color if roi.color else fly_color(idx)
+        self.fly_color_swatch.setStyleSheet(f"background-color: {current_color}; border: 1px solid #888;")
+
+    def on_fly_color_clicked(self):
+        idx = self._selected_fly_idx
+        roi = self.engine.rois[idx]
+        current = QColor(roi.color if roi.color else fly_color(idx))
+        picked = QColorDialog.getColor(current, self, "Pick Fly Color")
+        if picked.isValid():
+            hex_color = picked.name()
+            self.engine.set_fly_color(idx, hex_color)
+            self.fly_color_swatch.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #888;")
 
     # -- Mode switching -------------------------------------------------------
     def on_mode_changed(self):
