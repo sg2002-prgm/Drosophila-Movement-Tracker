@@ -323,13 +323,15 @@ class TrackerEngine(QObject):
                                 y_mm = (cy / h) * roi.real_h_mm
                                 pos_mm = self._apply_smoothing(i, x_mm, y_mm)
                                 detected = True
-                                # Marker on the detected fly position - a yellow X-shaped crosshair, always drawn.
+                                #size-responsive square changed instead of  crosshair
                                 mx, my = x + int(cx), y + int(cy)
                                 arm = 4
-                                cv2.line(display, (mx - arm, my - arm), (mx + arm, my + arm),
-                                         (0, 255, 255), 1, lineType=cv2.LINE_AA)
-                                cv2.line(display, (mx - arm, my + arm), (mx + arm, my - arm),
-                                         (0, 255, 255), 1, lineType=cv2.LINE_AA)
+                                mx, my = x + int(cx), y + int(cy)
+                                avg_area = (self.min_blob_area + self.max_blob_area) / 2
+                                half_side = max(2, int((avg_area ** 0.5) / 2))
+                                cv2.rectangle(display, (mx - half_side, my - half_side),
+                                              (mx + half_side, my + half_side),
+                                              (0, 255, 255), 1, lineType=cv2.LINE_AA)
 
                     if self.preview_mask:
                         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
