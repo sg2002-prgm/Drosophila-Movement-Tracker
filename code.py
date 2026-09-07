@@ -73,6 +73,8 @@ FPS_OPTIONS = [15, 24, 30, 60]
 DEFAULT_FPS_INDEX = 3  # 60 -- OBS Virtual Camera or similar sources can go higher (select 60)
 DEFAULT_MOVEMENT_THRESHOLD_MM = 0.5
 DEFAULT_GRID_DIVISIONS = 4
+DEFAULT_MAX_JUMP_MM = 15.0
+MAX_CONSECUTIVE_MISSES_BEFORE_REACQUIRE = 15
 IDLE_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")  # light red
 MOVE_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # light green
 
@@ -99,6 +101,7 @@ class FlyROI:
 
 @dataclass
 class FlyTrack:
+    consecutive_misses: int = 0
     timestamps: list = field(default_factory=list)
     xs_mm: list = field(default_factory=list)
     ys_mm: list = field(default_factory=list)
@@ -131,6 +134,7 @@ class TrackerEngine(QObject):
         self.smoothing_window = 1  # 1 = no smoothing
         self.preview_mask = False
         self.movement_threshold_mm = DEFAULT_MOVEMENT_THRESHOLD_MM
+        self.max_jump_mm = DEFAULT_MAX_JUMP_MM
         self.grid_divisions = DEFAULT_GRID_DIVISIONS
         self.rois = []
         self.tracks = []
@@ -240,6 +244,9 @@ class TrackerEngine(QObject):
 
     def set_movement_threshold(self, mm):
         self.movement_threshold_mm = mm
+
+    def set_max_jump(self, mm):
+        self.max_jump_mm = mm
 
     def set_grid_divisions(self, n):
         self.grid_divisions = max(0, n)
