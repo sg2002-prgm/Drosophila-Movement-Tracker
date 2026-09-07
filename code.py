@@ -35,7 +35,7 @@ from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QSlider,
     QComboBox, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
-    QTableWidget, QTableWidgetItem, QFileDialog, QMessageBox, QCheckBox,
+    QTableWidget, QTableWidgetItem, QFileDialog, QMessageBox, QCheckBox, QColorDialog,
     QSpinBox, QDoubleSpinBox, QLineEdit, QScrollArea, QProgressBar,
     QRadioButton, QButtonGroup
 )
@@ -126,6 +126,7 @@ class TrackerEngine(QObject):
         self.cap = None
         self.threshold = 90
         self.min_blob_area = 8
+        self.max_blob_area=5000
         self.log_interval_sec = DEFAULT_LOG_INTERVAL_SEC
         self.smoothing_window = 1  # 1 = no smoothing
         self.preview_mask = False
@@ -225,6 +226,9 @@ class TrackerEngine(QObject):
     def set_min_blob_area(self, value):
         self.min_blob_area = value
 
+    def set_max_blob_area(self, value):
+        self.max_blob_area = value
+
     def set_log_interval(self, seconds):
         self.log_interval_sec = seconds
 
@@ -263,6 +267,7 @@ class TrackerEngine(QObject):
             ],
             "threshold": self.threshold,
             "min_blob_area": self.min_blob_area,
+            "max_blob_area": self.max_blob_area,
             "log_interval_sec": self.log_interval_sec,
             "smoothing_window": self.smoothing_window,
         }
@@ -282,6 +287,7 @@ class TrackerEngine(QObject):
             self.rois[i].real_h_mm = r.get("real_h_mm", DEFAULT_VIAL_H_MM)
         self.threshold = data.get("threshold", self.threshold)
         self.min_blob_area = data.get("min_blob_area", self.min_blob_area)
+        self.max_blob_area = data.get("max_blob_area", self.max_blob_area)
         self.log_interval_sec = data.get("log_interval_sec", self.log_interval_sec)
         self.smoothing_window = data.get("smoothing_window", self.smoothing_window)
 
@@ -307,7 +313,8 @@ class TrackerEngine(QObject):
                     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                     if contours:
                         largest = max(contours, key=cv2.contourArea)
-                        if cv2.contourArea(largest) > self.min_blob_area:
+                        blob_area = cv2.contourArea(largest)
+                        if self.min_blob_area < blob_area < self.max_blob_area:
                             M = cv2.moments(largest)
                             if M["m00"] != 0:
                                 cx = M["m10"] / M["m00"]
@@ -872,17 +879,24 @@ class MainWindow(QMainWindow):
         self.min_size_spin.valueChanged.connect(self.engine.set_min_blob_area)
         layout.addWidget(self.min_size_spin, 1, 1)
 
-        layout.addWidget(QLabel("Smoothing"), 2, 0)
+        layout.addWidget(QLabel("Max Size"), 2, 0)
+        self.max_size_spin = QSpinBox()
+        self.max_size_spin.setRange(1, 20000)
+        self.max_size_spin.setValue(self.engine.max_blob_area)
+        self.max_size_spin.valueChanged.connect(self.engine.set_max_blob_area)
+        layout.addWidget(self.max_size_spin, 2, 1)
+
+        layout.addWidget(QLabel("Smoothing"), 3, 0)
         self.smoothing_spin = QSpinBox()
         self.smoothing_spin.setRange(1, 20)
         self.smoothing_spin.setValue(self.engine.smoothing_window)
         self.smoothing_spin.valueChanged.connect(self.engine.set_smoothing_window)
-        layout.addWidget(self.smoothing_spin, 2, 1)
+        layout.addWidget(self.smoothing_spin, 3, 1)
 
         self.preview_mask_check = QCheckBox("Preview Mask")
         self.preview_mask_check.stateChanged.connect(
             lambda s: self.engine.set_preview_mask(s == Qt.Checked))
-        layout.addWidget(self.preview_mask_check, 3, 0, 1, 2)
+        layout.addWidget(self.preview_mask_check, 4, 0, 1, 2)
 
         return group
 
