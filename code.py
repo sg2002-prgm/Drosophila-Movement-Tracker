@@ -275,6 +275,7 @@ class TrackerEngine(QObject):
             "threshold": self.threshold,
             "min_blob_area": self.min_blob_area,
             "max_blob_area": self.max_blob_area,
+            "max_jump_mm": self.max_jump_mm,
             "log_interval_sec": self.log_interval_sec,
             "smoothing_window": self.smoothing_window,
         }
@@ -295,6 +296,7 @@ class TrackerEngine(QObject):
         self.threshold = data.get("threshold", self.threshold)
         self.min_blob_area = data.get("min_blob_area", self.min_blob_area)
         self.max_blob_area = data.get("max_blob_area", self.max_blob_area)
+        self.max_jump_mm = data.get("max_jump_mm", self.max_jump_mm)
         self.log_interval_sec = data.get("log_interval_sec", self.log_interval_sec)
         self.smoothing_window = data.get("smoothing_window", self.smoothing_window)
 
@@ -310,6 +312,7 @@ class TrackerEngine(QObject):
         for i, roi in enumerate(self.rois):
             detected = False
             pos_mm = None
+            track = self.tracks[i]
 
             if roi.rect is not None:
                 x, y, w, h = (int(v) for v in roi.rect)
@@ -318,27 +321,45 @@ class TrackerEngine(QObject):
                 if sub.size > 0:
                     _, mask = cv2.threshold(sub, self.threshold, 255, cv2.THRESH_BINARY_INV)
                     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    if contours:
-                        largest = max(contours, key=cv2.contourArea)
-                        blob_area = cv2.contourArea(largest)
-                        if self.min_blob_area < blob_area < self.max_blob_area:
-                            M = cv2.moments(largest)
+                    # Gather every contour that passes the size filter as a candidate
+                    # (not just the largest), so we have real options to choose from.
+                    candidates = []
+                    for c in contours:
+                        area = cv2.contourArea(c)
+                        if self.min_blob_area < area < self.max_blob_area:
+                            M = cv2.moments(c)
                             if M["m00"] != 0:
-                                cx = M["m10"] / M["m00"]
-                                cy = M["m01"] / M["m00"]
-                                x_mm = (cx / w) * roi.real_w_mm
-                                y_mm = (cy / h) * roi.real_h_mm
-                                pos_mm = self._apply_smoothing(i, x_mm, y_mm)
-                                detected = True
-                                #size-responsive square changed instead of  crosshair
-                                mx, my = x + int(cx), y + int(cy)
-                                arm = 4
-                                mx, my = x + int(cx), y + int(cy)
-                                avg_area = (self.min_blob_area + self.max_blob_area) / 2
-                                half_side = max(2, int((avg_area ** 0.5) / 2))
-                                cv2.rectangle(display, (mx - half_side, my - half_side),
-                                              (mx + half_side, my + half_side),
-                                              (0, 255, 255), 1, lineType=cv2.LINE_AA)
+                                ccx = M["m10"] / M["m00"]
+                                ccy = M["m01"] / M["m00"]
+                                cx_mm = (ccx / w) * roi.real_w_mm
+                                cy_mm = (ccy / h) * roi.real_h_mm
+                                candidates.append((area, ccx, ccy, cx_mm, cy_mm))
+
+                    chosen = None
+                    if candidates:
+                        if track.last_pos_mm is not None and track.consecutive_misses < MAX_CONSECUTIVE_MISSES_BEFORE_REACQUIRE:
+                            def _dist(c):
+                                return ((c[3] - track.last_pos_mm[0]) ** 2 + (c[4] - track.last_pos_mm[1]) ** 2) ** 0.5
+                            best = min(candidates, key=_dist)
+                            if _dist(best) <= self.max_jump_mm:
+                                chosen = best
+                                track.consecutive_misses = 0
+                            else:
+                                track.consecutive_misses += 1
+                        else:
+                            chosen = max(candidates, key=lambda c: c[0])
+                            track.consecutive_misses = 0
+
+                    if chosen is not None:
+                        _, ccx, ccy, cx_mm, cy_mm = chosen
+                        pos_mm = self._apply_smoothing(i, cx_mm, cy_mm)
+                        detected = True
+                        mx, my = x + int(ccx), y + int(ccy)
+                        avg_area = (self.min_blob_area + self.max_blob_area) / 2
+                        half_side = max(2, int((avg_area ** 0.5) / 2))
+                        cv2.rectangle(display, (mx - half_side, my - half_side),
+                                      (mx + half_side, my + half_side),
+                                      (0, 255, 255), 1, lineType=cv2.LINE_AA)
 
                     if self.preview_mask:
                         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
@@ -359,7 +380,6 @@ class TrackerEngine(QObject):
                         cv2.line(display, (gx, y), (gx, y + h), grid_color, 1)
                         cv2.line(display, (x, gy), (x + w, gy), grid_color, 1)
 
-            track = self.tracks[i]
             if detected:
                 track.last_seen = sim_time
                 track.last_pos_mm = pos_mm
