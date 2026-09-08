@@ -902,30 +902,43 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.thresh_value_label, 0, 2)
 
         layout.addWidget(QLabel("Min Size"), 1, 0)
-        self.min_size_spin = QSpinBox()
-        self.min_size_spin.setRange(1, 500)
-        self.min_size_spin.setValue(self.engine.min_blob_area)
-        self.min_size_spin.valueChanged.connect(self.engine.set_min_blob_area)
-        layout.addWidget(self.min_size_spin, 1, 1)
+        self.min_size_slider = QSlider(Qt.Horizontal)
+        self.min_size_slider.setRange(1, 500)
+        self.min_size_slider.setValue(self.engine.min_blob_area)
+        self.min_size_slider.valueChanged.connect(self.on_min_size_changed)
+        self.min_size_value_label = QLabel(str(self.engine.min_blob_area))
+        layout.addWidget(self.min_size_slider, 1, 1)
+        layout.addWidget(self.min_size_value_label, 1, 2)
 
         layout.addWidget(QLabel("Max Size"), 2, 0)
-        self.max_size_spin = QSpinBox()
-        self.max_size_spin.setRange(1, 20000)
-        self.max_size_spin.setValue(self.engine.max_blob_area)
-        self.max_size_spin.valueChanged.connect(self.engine.set_max_blob_area)
-        layout.addWidget(self.max_size_spin, 2, 1)
+        self.max_size_slider = QSlider(Qt.Horizontal)
+        self.max_size_slider.setRange(1, 20000)
+        self.max_size_slider.setValue(self.engine.max_blob_area)
+        self.max_size_slider.valueChanged.connect(self.on_max_size_changed)
+        self.max_size_value_label = QLabel(str(self.engine.max_blob_area))
+        layout.addWidget(self.max_size_slider, 2, 1)
+        layout.addWidget(self.max_size_value_label, 2, 2)
 
-        layout.addWidget(QLabel("Smoothing"), 3, 0)
+        layout.addWidget(QLabel("Max Jump (mm)"), 3, 0)
+        self.max_jump_slider = QSlider(Qt.Horizontal)
+        self.max_jump_slider.setRange(1, 100)
+        self.max_jump_slider.setValue(int(self.engine.max_jump_mm))
+        self.max_jump_slider.valueChanged.connect(self.on_max_jump_changed)
+        self.max_jump_value_label = QLabel(f"{self.engine.max_jump_mm:.0f} mm")
+        layout.addWidget(self.max_jump_slider, 3, 1)
+        layout.addWidget(self.max_jump_value_label, 3, 2)
+
+        layout.addWidget(QLabel("Smoothing"), 4, 0)
         self.smoothing_spin = QSpinBox()
         self.smoothing_spin.setRange(1, 20)
         self.smoothing_spin.setValue(self.engine.smoothing_window)
         self.smoothing_spin.valueChanged.connect(self.engine.set_smoothing_window)
-        layout.addWidget(self.smoothing_spin, 3, 1)
+        layout.addWidget(self.smoothing_spin, 4, 1)
 
         self.preview_mask_check = QCheckBox("Preview Mask")
         self.preview_mask_check.stateChanged.connect(
             lambda s: self.engine.set_preview_mask(s == Qt.Checked))
-        layout.addWidget(self.preview_mask_check, 4, 0, 1, 2)
+        layout.addWidget(self.preview_mask_check, 5, 0, 1, 2)
 
         return group
 
@@ -1191,7 +1204,9 @@ class MainWindow(QMainWindow):
             self.engine.load_layout(path)
             self.num_flies_spin.setValue(self.engine.num_flies)
             self.thresh_slider.setValue(self.engine.threshold)
-            self.min_size_spin.setValue(self.engine.min_blob_area)
+            self.min_size_slider.setValue(self.engine.min_blob_area)
+            self.max_size_slider.setValue(self.engine.max_blob_area)
+            self.max_jump_slider.setValue(int(self.engine.max_jump_mm))
             self.log_interval_spin.setValue(self.engine.log_interval_sec)
             self.smoothing_spin.setValue(self.engine.smoothing_window)
             self._selected_fly_idx = 0
@@ -1207,6 +1222,18 @@ class MainWindow(QMainWindow):
         mm = slider_value / 10.0
         self.engine.set_movement_threshold(mm)
         self.movement_thresh_label.setText(f"{mm:.1f} mm")
+
+    def on_min_size_changed(self, value):
+        self.engine.set_min_blob_area(value)
+        self.min_size_value_label.setText(str(value))
+
+    def on_max_size_changed(self, value):
+        self.engine.set_max_blob_area(value)
+        self.max_size_value_label.setText(str(value))
+
+    def on_max_jump_changed(self, value):
+        self.engine.set_max_jump(value)
+        self.max_jump_value_label.setText(f"{value} mm")
 
     # -- Tracking / session (live mode) -------------------------------------------
     def start_tracking(self):
