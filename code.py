@@ -48,10 +48,10 @@ import matplotlib.pyplot as plt
 
 
 DEFAULT_NUM_FLIES = 5
-MAX_FLIES = 20
+MAX_FLIES = 100
 MAX_CAMERA_PROBE = 8  # how many camera indices to test when scanning
 FLY_COLORS = [
-    "#e6194B", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
+    "#2c030d", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
     "#42d4f4", "#f032e6", "#bfef45", "#fabed4", "#469990",
     "#dcbeff", "#9A6324", "#fffac8", "#800000", "#aaffc3",
     "#808000", "#ffd8b1", "#000075", "#a9a9a9", "#800080",
@@ -1215,6 +1215,18 @@ class MainWindow(QMainWindow):
     def on_threshold_changed(self, value):
         self.engine.set_threshold(value)
         self.thresh_value_label.setText(str(value))
+
+    def on_min_size_changed(self, value):
+        self.engine.set_min_blob_area(value)
+        self.min_size_value_label.setText(str(value))
+
+    def on_max_size_changed(self, value):
+        self.engine.set_max_blob_area(value)
+        self.max_size_value_label.setText(str(value))
+
+    def on_max_jump_changed(self, value):
+        self.engine.set_max_jump(value)
+        self.max_jump_value_label.setText(f"{value} mm")
 
     def on_movement_threshold_changed(self, slider_value):
         mm = slider_value / 10.0
