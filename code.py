@@ -275,6 +275,7 @@ class TrackerEngine(QObject):
             "threshold": self.threshold,
             "min_blob_area": self.min_blob_area,
             "max_blob_area": self.max_blob_area,
+            "max_jump_mm": self.max_jump_mm,
             "log_interval_sec": self.log_interval_sec,
             "smoothing_window": self.smoothing_window,
         }
@@ -296,6 +297,7 @@ class TrackerEngine(QObject):
         self.min_blob_area = data.get("min_blob_area", self.min_blob_area)
         self.max_blob_area = data.get("max_blob_area", self.max_blob_area)
         self.max_jump_mm = data.get("max_jump_mm", self.max_jump_mm)
+        self.max_jump_mm = data.get("max_jump_mm", self.max_jump_mm)
         self.log_interval_sec = data.get("log_interval_sec", self.log_interval_sec)
         self.smoothing_window = data.get("smoothing_window", self.smoothing_window)
 
@@ -312,6 +314,7 @@ class TrackerEngine(QObject):
             detected = False
             pos_mm = None
             track = self.tracks[i]
+            track = self.tracks[i]
 
             if roi.rect is not None:
                 x, y, w, h = (int(v) for v in roi.rect)
@@ -327,7 +330,45 @@ class TrackerEngine(QObject):
                         area = cv2.contourArea(c)
                         if self.min_blob_area < area < self.max_blob_area:
                             M = cv2.moments(c)
+                    # Gather every contour that passes the size filter as a candidate
+                    # (not just the largest), so we have real options to choose from.
+                    candidates = []
+                    for c in contours:
+                        area = cv2.contourArea(c)
+                        if self.min_blob_area < area < self.max_blob_area:
+                            M = cv2.moments(c)
                             if M["m00"] != 0:
+                                ccx = M["m10"] / M["m00"]
+                                ccy = M["m01"] / M["m00"]
+                                cx_mm = (ccx / w) * roi.real_w_mm
+                                cy_mm = (ccy / h) * roi.real_h_mm
+                                candidates.append((area, ccx, ccy, cx_mm, cy_mm))
+
+                    chosen = None
+                    if candidates:
+                        if track.last_pos_mm is not None and track.consecutive_misses < MAX_CONSECUTIVE_MISSES_BEFORE_REACQUIRE:
+                            def _dist(c):
+                                return ((c[3] - track.last_pos_mm[0]) ** 2 + (c[4] - track.last_pos_mm[1]) ** 2) ** 0.5
+                            best = min(candidates, key=_dist)
+                            if _dist(best) <= self.max_jump_mm:
+                                chosen = best
+                                track.consecutive_misses = 0
+                            else:
+                                track.consecutive_misses += 1
+                        else:
+                            chosen = max(candidates, key=lambda c: c[0])
+                            track.consecutive_misses = 0
+
+                    if chosen is not None:
+                        _, ccx, ccy, cx_mm, cy_mm = chosen
+                        pos_mm = self._apply_smoothing(i, cx_mm, cy_mm)
+                        detected = True
+                        mx, my = x + int(ccx), y + int(ccy)
+                        avg_area = (self.min_blob_area + self.max_blob_area) / 2
+                        half_side = max(2, int((avg_area ** 0.5) / 2))
+                        cv2.rectangle(display, (mx - half_side, my - half_side),
+                                      (mx + half_side, my + half_side),
+                                      (0, 255, 255), 1, lineType=cv2.LINE_AA)
                                 ccx = M["m10"] / M["m00"]
                                 ccy = M["m01"] / M["m00"]
                                 cx_mm = (ccx / w) * roi.real_w_mm
@@ -909,6 +950,13 @@ class MainWindow(QMainWindow):
         self.min_size_value_label = QLabel(str(self.engine.min_blob_area))
         layout.addWidget(self.min_size_slider, 1, 1)
         layout.addWidget(self.min_size_value_label, 1, 2)
+        self.min_size_slider = QSlider(Qt.Horizontal)
+        self.min_size_slider.setRange(1, 500)
+        self.min_size_slider.setValue(self.engine.min_blob_area)
+        self.min_size_slider.valueChanged.connect(self.on_min_size_changed)
+        self.min_size_value_label = QLabel(str(self.engine.min_blob_area))
+        layout.addWidget(self.min_size_slider, 1, 1)
+        layout.addWidget(self.min_size_value_label, 1, 2)
 
         layout.addWidget(QLabel("Max Size"), 2, 0)
         self.max_size_slider = QSlider(Qt.Horizontal)
@@ -927,17 +975,36 @@ class MainWindow(QMainWindow):
         self.max_jump_value_label = QLabel(f"{self.engine.max_jump_mm:.0f} mm")
         layout.addWidget(self.max_jump_slider, 3, 1)
         layout.addWidget(self.max_jump_value_label, 3, 2)
+        self.max_size_slider = QSlider(Qt.Horizontal)
+        self.max_size_slider.setRange(1, 20000)
+        self.max_size_slider.setValue(self.engine.max_blob_area)
+        self.max_size_slider.valueChanged.connect(self.on_max_size_changed)
+        self.max_size_value_label = QLabel(str(self.engine.max_blob_area))
+        layout.addWidget(self.max_size_slider, 2, 1)
+        layout.addWidget(self.max_size_value_label, 2, 2)
 
+        layout.addWidget(QLabel("Max Jump (mm)"), 3, 0)
+        self.max_jump_slider = QSlider(Qt.Horizontal)
+        self.max_jump_slider.setRange(1, 100)
+        self.max_jump_slider.setValue(int(self.engine.max_jump_mm))
+        self.max_jump_slider.valueChanged.connect(self.on_max_jump_changed)
+        self.max_jump_value_label = QLabel(f"{self.engine.max_jump_mm:.0f} mm")
+        layout.addWidget(self.max_jump_slider, 3, 1)
+        layout.addWidget(self.max_jump_value_label, 3, 2)
+
+        layout.addWidget(QLabel("Smoothing"), 4, 0)
         layout.addWidget(QLabel("Smoothing"), 4, 0)
         self.smoothing_spin = QSpinBox()
         self.smoothing_spin.setRange(1, 20)
         self.smoothing_spin.setValue(self.engine.smoothing_window)
         self.smoothing_spin.valueChanged.connect(self.engine.set_smoothing_window)
         layout.addWidget(self.smoothing_spin, 4, 1)
+        layout.addWidget(self.smoothing_spin, 4, 1)
 
         self.preview_mask_check = QCheckBox("Preview Mask")
         self.preview_mask_check.stateChanged.connect(
             lambda s: self.engine.set_preview_mask(s == Qt.Checked))
+        layout.addWidget(self.preview_mask_check, 5, 0, 1, 2)
         layout.addWidget(self.preview_mask_check, 5, 0, 1, 2)
 
         return group
@@ -1204,7 +1271,9 @@ class MainWindow(QMainWindow):
             self.engine.load_layout(path)
             self.num_flies_spin.setValue(self.engine.num_flies)
             self.thresh_slider.setValue(self.engine.threshold)
-            self.min_size_spin.setValue(self.engine.min_blob_area)
+            self.min_size_slider.setValue(self.engine.min_blob_area)
+            self.max_size_slider.setValue(self.engine.max_blob_area)
+            self.max_jump_slider.setValue(int(self.engine.max_jump_mm))
             self.log_interval_spin.setValue(self.engine.log_interval_sec)
             self.smoothing_spin.setValue(self.engine.smoothing_window)
             self._selected_fly_idx = 0
@@ -1232,6 +1301,18 @@ class MainWindow(QMainWindow):
         mm = slider_value / 10.0
         self.engine.set_movement_threshold(mm)
         self.movement_thresh_label.setText(f"{mm:.1f} mm")
+
+    def on_min_size_changed(self, value):
+        self.engine.set_min_blob_area(value)
+        self.min_size_value_label.setText(str(value))
+
+    def on_max_size_changed(self, value):
+        self.engine.set_max_blob_area(value)
+        self.max_size_value_label.setText(str(value))
+
+    def on_max_jump_changed(self, value):
+        self.engine.set_max_jump(value)
+        self.max_jump_value_label.setText(f"{value} mm")
 
     # -- Tracking / session (live mode) -------------------------------------------
     def start_tracking(self):
