@@ -928,17 +928,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.max_jump_slider, 3, 1)
         layout.addWidget(self.max_jump_value_label, 3, 2)
 
-        layout.addWidget(QLabel("Smoothing"), 3, 0)
+        layout.addWidget(QLabel("Smoothing"), 4, 0)
         self.smoothing_spin = QSpinBox()
         self.smoothing_spin.setRange(1, 20)
         self.smoothing_spin.setValue(self.engine.smoothing_window)
         self.smoothing_spin.valueChanged.connect(self.engine.set_smoothing_window)
-        layout.addWidget(self.smoothing_spin, 3, 1)
+        layout.addWidget(self.smoothing_spin, 4, 1)
 
         self.preview_mask_check = QCheckBox("Preview Mask")
         self.preview_mask_check.stateChanged.connect(
             lambda s: self.engine.set_preview_mask(s == Qt.Checked))
-        layout.addWidget(self.preview_mask_check, 4, 0, 1, 2)
+        layout.addWidget(self.preview_mask_check, 5, 0, 1, 2)
 
         return group
 
