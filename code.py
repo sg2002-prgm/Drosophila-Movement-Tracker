@@ -369,37 +369,6 @@ class TrackerEngine(QObject):
                         cv2.rectangle(display, (mx - half_side, my - half_side),
                                       (mx + half_side, my + half_side),
                                       (0, 255, 255), 1, lineType=cv2.LINE_AA)
-                                ccx = M["m10"] / M["m00"]
-                                ccy = M["m01"] / M["m00"]
-                                cx_mm = (ccx / w) * roi.real_w_mm
-                                cy_mm = (ccy / h) * roi.real_h_mm
-                                candidates.append((area, ccx, ccy, cx_mm, cy_mm))
-
-                    chosen = None
-                    if candidates:
-                        if track.last_pos_mm is not None and track.consecutive_misses < MAX_CONSECUTIVE_MISSES_BEFORE_REACQUIRE:
-                            def _dist(c):
-                                return ((c[3] - track.last_pos_mm[0]) ** 2 + (c[4] - track.last_pos_mm[1]) ** 2) ** 0.5
-                            best = min(candidates, key=_dist)
-                            if _dist(best) <= self.max_jump_mm:
-                                chosen = best
-                                track.consecutive_misses = 0
-                            else:
-                                track.consecutive_misses += 1
-                        else:
-                            chosen = max(candidates, key=lambda c: c[0])
-                            track.consecutive_misses = 0
-
-                    if chosen is not None:
-                        _, ccx, ccy, cx_mm, cy_mm = chosen
-                        pos_mm = self._apply_smoothing(i, cx_mm, cy_mm)
-                        detected = True
-                        mx, my = x + int(ccx), y + int(ccy)
-                        avg_area = (self.min_blob_area + self.max_blob_area) / 2
-                        half_side = max(2, int((avg_area ** 0.5) / 2))
-                        cv2.rectangle(display, (mx - half_side, my - half_side),
-                                      (mx + half_side, my + half_side),
-                                      (0, 255, 255), 1, lineType=cv2.LINE_AA)
 
                     if self.preview_mask:
                         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
