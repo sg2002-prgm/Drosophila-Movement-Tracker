@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 
 os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
 
+import sqlite3
 import cv2
 import numpy as np
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
@@ -57,7 +58,7 @@ FLY_COLORS = [
     "#808000", "#ffd8b1", "#000075", "#a9a9a9", "#800080",
 ]
 DEFAULT_LOG_INTERVAL_SEC = 1.0
-DEFAULT_VIAL_W_MM = 105.0
+DEFAULT_VIAL_W_MM = 15.0
 DEFAULT_VIAL_H_MM = 105.0
 # (label, width, height) - 16:9 modes listed first since that's usually
 # what's wanted; 4:3 kept available since some cameras only support that.
@@ -86,6 +87,48 @@ def fly_color(idx):
 def safe_filename_part(name):
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip() or "fly"
 
+class TrackerDB:
+
+    def __init__(self, path):
+        self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS positions (
+                fly_name TEXT,
+                timestamp TEXT,
+                x_mm REAL,
+                y_mm REAL,
+                detected INTEGER
+            )
+        """)
+        self.conn.commit()
+        self._pending = 0
+
+    def log_point(self, fly_name, timestamp, x_mm, y_mm, detected):
+        self.conn.execute(
+            "INSERT INTO positions (fly_name, timestamp, x_mm, y_mm, detected) VALUES (?, ?, ?, ?, ?)",
+            (fly_name, timestamp.isoformat(), x_mm, y_mm, int(detected)),
+        )
+        self._pending += 1
+        # Commit in small batches rather than after every single row - keeps
+        # writes fast while still bounding how much could be lost on a crash.
+        if self._pending >= 5:
+            self.conn.commit()
+            self._pending = 0
+
+    def flush(self):
+        self.conn.commit()
+        self._pending = 0
+
+    def clear(self):
+        self.conn.execute("DELETE FROM positions")
+        self.conn.commit()
+        self._pending = 0
+
+    def close(self):
+        self.flush()
+        self.conn.close()
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -126,6 +169,8 @@ class TrackerEngine(QObject):
 
     def __init__(self, num_flies=DEFAULT_NUM_FLIES):
         super().__init__()
+        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tracker_live.sqlite3")
+        self.db = TrackerDB(db_path)
         self.cap = None
         self.threshold = 90
         self.min_blob_area = 8
@@ -264,6 +309,7 @@ class TrackerEngine(QObject):
     def reset_data(self):
         self.tracks = [FlyTrack() for _ in range(self.num_flies)]
         self.last_log_time = 0.0
+        self.db.clear()
 
     # -- layout save/load -------------------------------------------------------
     def save_layout(self, path):
@@ -395,9 +441,12 @@ class TrackerEngine(QObject):
                 track.last_pos_mm = pos_mm
 
             if should_log:
-                track.timestamps.append(datetime.datetime.now())
+                now_ts = datetime.datetime.now()
+                track.timestamps.append(now_ts)
                 track.xs_mm.append(pos_mm[0] if detected else None)
                 track.ys_mm.append(pos_mm[1] if detected else None)
+                self.db.log_point(roi.name, now_ts, pos_mm[0] if detected else None,
+                                   pos_mm[1] if detected else None, detected)
 
                 # Total distance moved: accumulated as soon as tracking starts, using the straight-line (Euclidean) distance between this logged point and the previously logged point, in mm - but ONLY counted when the X change, the Y change, or both are at/above the movement threshold 
                 if detected:
@@ -702,7 +751,6 @@ class MainWindow(QMainWindow):
 
         self.session_start_time = None
         self.duration_limit_sec = 0
-        self.auto_save_enabled = False
         self.export_folder = os.getcwd()
         self.loaded_video_path = None
         self._batch_generator = None
@@ -866,14 +914,14 @@ class MainWindow(QMainWindow):
         self.clear_roi_btn.clicked.connect(self.clear_roi)
         layout.addWidget(self.clear_roi_btn, 1, 1)
 
-        layout.addWidget(QLabel("Vial Length (mm)"), 2, 0)
+        layout.addWidget(QLabel("Vial Width (mm)"), 2, 0)
         self.vial_w_spin = QDoubleSpinBox()
         self.vial_w_spin.setRange(1, 1000)
         self.vial_w_spin.setValue(DEFAULT_VIAL_W_MM)
         self.vial_w_spin.valueChanged.connect(self.on_vial_size_changed)
         layout.addWidget(self.vial_w_spin, 2, 1)
 
-        layout.addWidget(QLabel("Vial Width (mm)"), 3, 0)
+        layout.addWidget(QLabel("Vial Length (mm)"), 3, 0)
         self.vial_h_spin = QDoubleSpinBox()
         self.vial_h_spin.setRange(1, 1000)
         self.vial_h_spin.setValue(DEFAULT_VIAL_H_MM)
@@ -1022,16 +1070,6 @@ class MainWindow(QMainWindow):
         thresh_row.addWidget(self.movement_thresh_slider)
         thresh_row.addWidget(self.movement_thresh_label)
         layout.addLayout(thresh_row, 2, 1)
-
-        self.auto_save_check = QCheckBox("Auto-Save")
-        self.auto_save_check.stateChanged.connect(self.on_auto_save_toggled)
-        layout.addWidget(self.auto_save_check, 3, 0)
-
-        layout.addWidget(QLabel("Auto-Save Every (min)"), 4, 0)
-        self.auto_save_interval_spin = QSpinBox()
-        self.auto_save_interval_spin.setRange(1, 60)
-        self.auto_save_interval_spin.setValue(5)
-        layout.addWidget(self.auto_save_interval_spin, 4, 1)
 
         return group
 
@@ -1293,18 +1331,7 @@ class MainWindow(QMainWindow):
             self.stop_tracking()
             QMessageBox.information(self, "Session Complete", "Duration limit reached — tracking stopped.")
 
-        if self.auto_save_enabled:
-            interval_sec = self.auto_save_interval_spin.value() * 60
-            if elapsed and elapsed % interval_sec == 0:
-                self._do_auto_save()
-
-    def on_auto_save_toggled(self, state):
-        self.auto_save_enabled = (state == Qt.Checked)
-
-    def _do_auto_save(self):
-        name = self.session_name_edit.text().strip() or "session"
-        path = os.path.join(self.export_folder, f"{name}_autosave.xlsx")
-        self.engine.export_excel(path)
+        self.engine.db.flush()
 
     # -- Frame / status / progress display -----------------------------------------
     def on_frame(self, frame):
@@ -1364,6 +1391,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.stop_camera()
+        self.engine.db.close()
         event.accept()
 
 
