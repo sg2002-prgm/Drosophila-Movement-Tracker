@@ -1,3 +1,21 @@
+# Current Update and Status
+
+## 1. SQLite3 is implemented
+
+It resolves the issue of the program of "not responding" over longer period of usage and data size increasing
+
+Current dependencies
+```bash
+pip install PyQt5 opencv-python openpyxl matplotlib numpy pygrabber pysqlite3
+```
+
+## 2. Detection And Tracking Algorithm changed
+
+Now the coordinated is depended on last know and stored coordinates so that sudden frame shift could be avoided, new slider for maximum frame shift to set threshold of max jump is added
+
+## 3. Custom colour swatch for tracker and ROI box is added
+
+
 # Drosophila Movement Tracker
 
 A desktop app (PyQt5) for tracking multiple *Drosophila* flies, each in its own vial, from a live camera or a recorded video file — logging position, movement status, speed, and total distance to Excel, and exporting trajectory plots as PNGs. This repository can be used for Sleep pattern analysis of Drosophila Flies. Note: The flies and the background on which the fly is analysed must have a colour difference. 
