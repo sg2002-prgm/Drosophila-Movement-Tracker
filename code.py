@@ -47,6 +47,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import queue
+import threading 
 
 DEFAULT_NUM_FLIES = 5
 MAX_FLIES = 100
@@ -87,13 +89,22 @@ def fly_color(idx):
 def safe_filename_part(name):
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip() or "fly"
 
-class TrackerDB:
+class QueuedTrackerDB:
+
+    _SENTINEL = object()
+    _CLEAR = object()
 
     def __init__(self, path):
-        self.conn = sqlite3.connect(path, check_same_thread=False)
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA synchronous=NORMAL")
-        self.conn.execute("""
+        self.path = path
+        self._queue = queue.Queue()
+        self._thread = threading.Thread(target=self._writer_loop, daemon=True)
+        self._thread.start()
+
+    def _writer_loop(self):
+        conn = sqlite3.connect(self.path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS positions (
                 fly_name TEXT,
                 timestamp TEXT,
@@ -102,33 +113,33 @@ class TrackerDB:
                 detected INTEGER
             )
         """)
-        self.conn.commit()
-        self._pending = 0
+        conn.commit()
+
+        while True:
+            item = self._queue.get()
+            if item is self._SENTINEL:
+                conn.close()
+                return
+            if item is self._CLEAR:
+                conn.execute("DELETE FROM positions")
+                conn.commit()
+                continue
+            fly_name, timestamp, x_mm, y_mm, detected = item
+            conn.execute(
+                "INSERT INTO positions (fly_name, timestamp, x_mm, y_mm, detected) VALUES (?, ?, ?, ?, ?)",
+                (fly_name, timestamp.isoformat(), x_mm, y_mm, int(detected)),
+            )
+            conn.commit()  # immediate, per-row commit - no batching
 
     def log_point(self, fly_name, timestamp, x_mm, y_mm, detected):
-        self.conn.execute(
-            "INSERT INTO positions (fly_name, timestamp, x_mm, y_mm, detected) VALUES (?, ?, ?, ?, ?)",
-            (fly_name, timestamp.isoformat(), x_mm, y_mm, int(detected)),
-        )
-        self._pending += 1
-        # Commit in small batches rather than after every single row - keeps
-        # writes fast while still bounding how much could be lost on a crash.
-        if self._pending >= 5:
-            self.conn.commit()
-            self._pending = 0
-
-    def flush(self):
-        self.conn.commit()
-        self._pending = 0
+        self._queue.put((fly_name, timestamp, x_mm, y_mm, detected))
 
     def clear(self):
-        self.conn.execute("DELETE FROM positions")
-        self.conn.commit()
-        self._pending = 0
+        self._queue.put(self._CLEAR)
 
     def close(self):
-        self.flush()
-        self.conn.close()
+        self._queue.put(self._SENTINEL)
+        self._thread.join(timeout=5)
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -170,7 +181,7 @@ class TrackerEngine(QObject):
     def __init__(self, num_flies=DEFAULT_NUM_FLIES):
         super().__init__()
         db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tracker_live.sqlite3")
-        self.db = TrackerDB(db_path)
+        self.db = QueuedTrackerDB(db_path)
         self.cap = None
         self.threshold = 90
         self.min_blob_area = 8
@@ -482,7 +493,9 @@ class TrackerEngine(QObject):
         display = self._detect_on_frame(frame, now, should_log)
 
         if should_log:
-            self.last_log_time = now
+            self.last_log_time += self.log_interval_sec
+            if now - self.last_log_time > self.log_interval_sec * 5:
+                self.last_log_time = now
 
         self.frame_ready.emit(display)
 
@@ -1300,7 +1313,7 @@ class MainWindow(QMainWindow):
     # -- Tracking / session (live mode) -------------------------------------------
     def start_tracking(self):
         self.engine.tracking_active = True
-        self.engine.last_log_time = 0.0
+        self.engine.last_log_time = time.time() - self.engine.log_interval_sec
         self.session_start_time = time.time()
         self.elapsed_timer.start(1000)
         self.start_track_btn.setEnabled(False)
